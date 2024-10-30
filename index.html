@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>棋盘格迷宫</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+            }
+
+            body {
+                display: flex;
+                height: 100vh;
+                justify-content: center;
+                align-items: center;
+            }
+
+            .maze-panel {
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .maze-button {
+                width: 600px;
+                height: 50px;
+                background: none;
+                border: 5px #333 solid;
+                border-radius: 6px;
+                color: #333;
+                font-size: 16px;
+                font-weight: bold;
+                cursor: pointer;
+            }
+
+            .maze-button:hover {
+                background: #ddd;
+                cursor: pointer;
+            }
+
+            .maze-canvas {
+                position: relative;
+                margin-top: 30px;
+                width: auto;
+                height: 600px;
+            }
+
+            .maze-layer {
+                background: none;
+                border: none;
+                width: auto;
+                height: 100%;
+            }
+
+            .maze-canvas > .maze-layer:nth-child(n + 2) {
+                top: 0;
+                left: 0;
+                position: absolute;
+            }
+
+            .maze-option {
+                width: 600px;
+                display: flex;
+                margin-top: 30px;
+                align-items: center;
+            }
+
+            .maze-select {
+                background: none;
+                height: 50px;
+                border: 5px #333 solid;
+                border-radius: 6px;
+                color: #333;
+                font-size: 16px;
+                font-weight: bold;
+                cursor: pointer;
+                padding: 0 10px;
+            }
+
+            .maze-option-name {
+                flex: 0 0 auto;
+                color: #333;
+                font-size: 16px;
+                font-weight: bold;
+                margin-right: 20px;
+            }
+
+            .maze-option-widget {
+                flex: 1;
+            }
+
+            .maze-option-tag {
+                flex: 0 0 auto;
+                margin-left: 20px;
+                color: #333;
+                font-size: 16px;
+                font-weight: bold;
+            }
+
+            .maze-range {
+                width: 100%;
+            }
+
+            .maze-select.maze-inline:first-child,
+            .maze-button.maze-inline:first-child {
+                border-right-width: 2px;
+                border-radius: 6px 0 0 6px;
+            }
+            .maze-select.maze-inline:last-child,
+            .maze-button.maze-inline:last-child {
+                border-left: none;
+                border-radius: 0 6px 6px 0;
+            }
+        </style>
+    </head>
+
+    <body>
+        <div class="maze-panel">
+            <div class="maze-option">
+                <label class="maze-option-name" for="maze-range-width">迷宫宽度</label>
+                <input
+                    type="range"
+                    class="maze-option-widget maze-range"
+                    id="maze-range-width"
+                    min="19"
+                    max="99"
+                    step="2" />
+                <p class="maze-option-tag"><span id="maze-label-width">0</span></p>
+            </div>
+            <div class="maze-option">
+                <label class="maze-option-name" for="maze-range-height">迷宫高度</label>
+                <input
+                    type="range"
+                    class="maze-option-widget maze-range"
+                    id="maze-range-height"
+                    min="19"
+                    max="99"
+                    step="2" />
+                <p class="maze-option-tag"><span id="maze-label-height">0</span></p>
+            </div>
+            <div class="maze-option">
+                <select class="maze-select maze-inline" id="maze-select-gen-algo" title="生成算法">
+                    <option value="dfs">深度优先搜索遍历</option>
+                    <option value="bfs">广度优先搜索遍历</option>
+                    <option value="kruskal">变种 Kruskal 算法</option>
+                    <option value="prim">变种 Prim 算法</option>
+                    <option value="divide">递归分割</option>
+                </select>
+                <label for="maze-select-gen-algo" hidden></label>
+                <label for="maze-button-gen" hidden></label>
+                <button class="maze-button maze-inline" id="maze-button-gen">重新生成迷宫</button>
+            </div>
+            <div class="maze-option">
+                <select class="maze-select maze-inline" id="maze-select-search-algo" title="寻路算法">
+                    <option value="dfs">深度优先搜索</option>
+                    <option value="divide">递归分割</option>
+                    <option value="kruskal">Kruskal</option>
+                    <option value="prim">Prim</option>
+                </select>
+                <label for="maze-select-search-algo" hidden></label>
+                <label for="maze-button-search" hidden></label>
+                <button class="maze-button maze-inline" id="maze-button-search">寻路</button>
+            </div>
+            <div class="maze-canvas">
+                <canvas class="maze-layer" id="maze-layer-static"></canvas>
+                <canvas class="maze-layer" id="maze-layer-dynamic"></canvas>
+            </div>
+            <div class="maze-option">
+                <label class="maze-option-name" for="maze-range-duration">动画速度</label>
+                <input
+                    type="range"
+                    class="maze-option-widget maze-range"
+                    id="maze-range-duration"
+                    min="1000"
+                    max="20000" />
+                <p class="maze-option-tag"><span id="maze-label-duration">0</span>ms</p>
+            </div>
+        </div>
+
+        <script type="module">
+            import * as generate from "./js/generate_algorithm.js";
+            import * as search from "./js/search_algorithm.js";
+
+            let animationId = null;
+            let animationSpeed = 1;
+            function animate(rander, duration = 4000, finsh) {
+                if (animationId) {
+                    cancelAnimationFrame(animationId);
+                    animationId = null;
+                }
+
+                let last = Date.now();
+                let progress = 0;
+                (function frame() {
+                    const now = Date.now();
+                    progress += ((now - last) / duration) * animationSpeed;
+                    progress < 0 && (progress = 0);
+                    progress > 1 && (progress = 1);
+                    rander(progress);
+                    last = now;
+
+                    if (progress >= 1) {
+                        finsh && finsh();
+                        return;
+                    }
+
+                    animationId = requestAnimationFrame(frame);
+                })();
+            }
+
+            const scvs = document.getElementById("maze-layer-static");
+            const dcvs = document.getElementById("maze-layer-dynamic");
+            const sctx = scvs.getContext("2d");
+            const dctx = dcvs.getContext("2d");
+
+            function resetCanvas(r, c) {
+                // 棋盘格迷宫行列必须都是奇数
+                const [rows, cols] = [r | 1, c | 1];
+
+                // 固定高度计算单元格尺寸，取奇数便于中心对齐
+                const size = Math.round((scvs.clientHeight * window.devicePixelRatio) / (rows + 2)) | 1;
+                const roadWidth = size + (Math.round(size / 5) | 1); // 路径宽度
+                const wallWidth = (size << 1) - roadWidth; // 墙宽度
+                // 基于单元格尺寸，计算画布尺寸
+                const [width, height] = [(cols + 2) * size, (rows + 2) * size];
+
+                // 重置画布
+                [scvs.width, scvs.height] = [width, height];
+                [dcvs.width, dcvs.height] = [width, height];
+                sctx.clearRect(0, 0, width, height);
+                dctx.clearRect(0, 0, width, height);
+
+                // 统一坐标转换
+                function pos(x, y) {
+                    return [(x + 1) * size + ((size >> 1) | 1), (y + 1) * size + ((size >> 1) | 1)];
+                }
+
+                // 输出基准参数
+                return { rows, cols, width, height, size, roadWidth, wallWidth, pos };
+            }
+
+            // 绘制迷宫
+            function drawMaze(ctx, params, data) {
+                const { rows, cols, width, height, size, roadWidth, wallWidth, pos } = params;
+
+                function road(x, y) {
+                    [x, y] = pos(x, y);
+                    ctx.clearRect(x - (roadWidth >> 1), y - (roadWidth >> 1), roadWidth, roadWidth);
+                }
+
+                // 填充画布
+                ctx.fillStyle = "#333";
+                ctx.fillRect(
+                    (roadWidth - wallWidth) >> 1,
+                    (roadWidth - wallWidth) >> 1,
+                    width - (roadWidth - wallWidth),
+                    height - (roadWidth - wallWidth)
+                );
+
+                // 绘制通路
+                for (let y = 0; y < rows; y++) {
+                    for (let x = 0; x < cols; x++) {
+                        if (x < 0 || x >= cols || y < 0 || y >= rows) continue;
+                        if (data[x + y * cols] === 0) continue;
+                        road(x, y);
+                    }
+                }
+            }
+
+            function saveCanvas(ctx, image) {
+                ctx.drawImage(image, 0, 0, image.width, image.height, 0, 0, image.width, image.height);
+            }
+
+            // 构建动画
+            function animateBuild(ctx, params, records, finsh) {
+                const { rows, cols, width, height, size, roadWidth, wallWidth, pos } = params;
+
+                ctx.lineCap = "butt";
+                ctx.lineJoin = "miter";
+
+                let duration = records.length * 100;
+
+                function randerRecord(item, ps = 1) {
+                    if (ps <= 0) return;
+                    if (ps > 1) ps = 1;
+
+                    let { mode, sx, sy, ex, ey } = item;
+                    switch (mode) {
+                        case "road":
+                            ctx.globalCompositeOperation = "destination-out";
+                            ctx.lineWidth = roadWidth;
+                            break;
+                        case "wall":
+                            ctx.strokeStyle = "#333";
+                            ctx.lineWidth = wallWidth;
+                            break;
+                    }
+
+                    const direction = item.dir === "x" || sx != ex;
+
+                    [sx, sy] = pos(sx, sy);
+                    [ex, ey] = pos(ex, ey);
+
+                    const helf = roadWidth >> 1;
+                    if (direction) {
+                        [sx, ex] = sx < ex ? [sx - helf, ex + helf] : [sx + helf, ex - helf];
+                    } else {
+                        [sy, ey] = sy < ey ? [sy - helf, ey + helf] : [sy + helf, ey - helf];
+                    }
+
+                    ex = sx + (ex - sx) * ps;
+                    ey = sy + (ey - sy) * ps;
+
+                    ctx.beginPath();
+                    ctx.moveTo(sx, sy);
+                    ctx.lineTo(ex, ey);
+                    ctx.stroke();
+
+                    ctx.globalCompositeOperation = "source-over";
+                }
+
+                if (!records || records.length <= 0) return;
+
+                if (records[0].mode === "road") {
+                    // 填充迷宫
+                    ctx.fillStyle = "#333";
+                    ctx.fillRect(
+                        (roadWidth - wallWidth) >> 1,
+                        (roadWidth - wallWidth) >> 1,
+                        width - (roadWidth - wallWidth),
+                        height - (roadWidth - wallWidth)
+                    );
+                } else {
+                    // 绘制边框
+                    ctx.strokeStyle = "#333";
+                    ctx.lineWidth = wallWidth;
+                    ctx.beginPath();
+                    ctx.moveTo(...pos(-1, -1));
+                    ctx.lineTo(...pos(-1, rows));
+                    ctx.lineTo(...pos(cols, rows));
+                    ctx.lineTo(...pos(cols, -1));
+                    ctx.closePath();
+                    ctx.stroke();
+                }
+
+                let lastIdx = 0;
+                animate(
+                    progress => {
+                        const curr = progress * records.length - 1;
+                        const currIdx = curr | 0;
+
+                        for (let i = lastIdx; i <= currIdx; i++) randerRecord(records[i]);
+                        lastIdx = currIdx + 1;
+
+                        if (currIdx < curr) randerRecord(records[currIdx + 1], curr - currIdx);
+                    },
+                    duration,
+                    finsh
+                );
+            }
+
+            // 探索动画
+            function animateExplore(ctx, params, data, records, finsh) {
+                const { rows, cols, width, height, size, roadWidth, wallWidth, pos } = params;
+
+                ctx.lineCap = "round";
+                ctx.lineJoin = "round";
+
+                let duration = records.length * 100;
+
+                function line(sx, sy, ex, ey, clear) {
+                    [sx, sy] = pos(sx, sy);
+                    [ex, ey] = pos(ex, ey);
+
+                    ctx.lineWidth = wallWidth;
+                    ctx.strokeStyle = clear ? "#fdd" : "#f66";
+
+                    ctx.beginPath();
+                    ctx.moveTo(sx, sy);
+                    ctx.lineTo(ex, ey);
+                    ctx.stroke();
+                }
+
+                // 动画
+                let lastIdx = 0;
+                animate(
+                    function (progress) {
+                        const curr = progress * (records.length - 1);
+                        const currIdx = curr | 0;
+
+                        for (let i = lastIdx; i <= currIdx; i++) {
+                            const { sx, sy, ex, ey, clear } = records[i];
+                            line(sx, sy, ex, ey, clear);
+                        }
+                        lastIdx = currIdx;
+
+                        if (currIdx < curr) {
+                            const ps = curr - currIdx;
+                            let { sx, sy, ex, ey, clear } = records[currIdx + 1];
+
+                            ex = sx + (ex - sx) * ps;
+                            ey = sy + (ey - sy) * ps;
+
+                            line(sx, sy, ex, ey, clear);
+                        }
+                    },
+                    duration,
+                    finsh
+                );
+            }
+
+            function animatePath(ctx, params, points, finsh) {
+                const { rows, cols, width, height, size, roadWidth, wallWidth, pos } = params;
+
+                points = Array.from(points).reverse();
+
+                ctx.lineCap = "round";
+                ctx.lineJoin = "round";
+
+                ctx.strokeStyle = "#8f8";
+
+                ctx.lineWidth = wallWidth;
+
+                let duration = points.length * 50;
+
+                let lastIdx = 0;
+                animate(
+                    function (progress) {
+                        const curr = progress * (points.length - 1);
+                        const currIdx = curr | 0;
+
+                        ctx.beginPath();
+
+                        let { x, y } = points[lastIdx];
+                        ctx.moveTo(...pos(x, y));
+                        for (let i = lastIdx; i <= currIdx; i++) {
+                            ({ x, y } = points[i]);
+                            ctx.lineTo(...pos(x, y));
+                        }
+                        lastIdx = currIdx;
+
+                        if (currIdx < curr) {
+                            const ps = curr - currIdx;
+                            const { x: ex, y: ey } = points[currIdx + 1];
+
+                            x += (ex - x) * ps;
+                            y += (ey - y) * ps;
+
+                            ctx.lineTo(...pos(x, y));
+                        }
+
+                        ctx.stroke();
+                    },
+                    duration,
+                    finsh
+                );
+            }
+
+            let genAlgo = "dfs";
+            let mazeWidth = 51;
+            let mazeHight = 51;
+            let maze = null;
+
+            async function buildMaze() {
+                const params = resetCanvas(mazeHight, mazeWidth);
+                let maze = generate[genAlgo](params.rows, params.cols);
+                let explore = search["bestfirst"](maze, { x: 0, y: 0 }, { x: params.cols - 1, y: params.rows - 1 });
+
+                await new Promise(resolve => animateBuild(dctx, params, maze.records, resolve));
+                saveCanvas(sctx, dcvs);
+                await new Promise(resolve => animateExplore(dctx, params, maze.data, explore.records, resolve));
+                saveCanvas(sctx, dcvs);
+                await new Promise(resolve => animatePath(dctx, params, explore.points, resolve));
+            }
+
+            const genAlgoSelect = document.getElementById("maze-select-gen-algo");
+            const genButton = document.getElementById("maze-button-gen");
+            const searchAlgoSelect = document.getElementById("maze-select-search-algo");
+            const searchButton = document.getElementById("maze-button-search");
+            const durationRange = document.getElementById("maze-range-duration");
+            const durationLabel = document.getElementById("maze-label-duration");
+            const widthRange = document.getElementById("maze-range-width");
+            const widthLabel = document.getElementById("maze-label-width");
+            const heightRange = document.getElementById("maze-range-height");
+            const heightLabel = document.getElementById("maze-label-height");
+
+            genAlgoSelect.value = genAlgo;
+            widthRange.value = mazeWidth.toString();
+            widthLabel.textContent = mazeWidth.toString();
+            heightRange.value = mazeHight.toString();
+            heightLabel.textContent = mazeHight.toString();
+
+            function onRangeChange() {
+                mazeWidth = parseInt(widthRange.value);
+                widthLabel.textContent = mazeWidth.toString();
+                mazeHight = parseInt(heightRange.value);
+                heightLabel.textContent = mazeHight.toString();
+            }
+            durationRange.oninput = onRangeChange;
+            widthRange.oninput = onRangeChange;
+            heightRange.oninput = onRangeChange;
+
+            genAlgoSelect.onchange = () => {
+                genAlgo = genAlgoSelect.value;
+            };
+
+            genButton.onclick = () => buildMaze();
+
+            buildMaze();
+
+            let longKeyDown = null;
+            window.addEventListener("keydown", ev => {
+                console.log(ev);
+                if (ev.code === "Space") {
+                    ev.preventDefault();
+                    longKeyDown && clearTimeout(longKeyDown);
+                    longKeyDown = setTimeout(() => {
+                        animationSpeed = 10;
+                    }, 100);
+                }
+            });
+            window.addEventListener("keyup", ev => {
+                console.log(ev);
+                if (ev.code === "Space") {
+                    ev.preventDefault();
+                    animationSpeed = 1;
+                    if (longKeyDown) {
+                        clearTimeout(longKeyDown);
+                        longKeyDown = null;
+                    }
+                }
+            });
+        </script>
+    </body>
+</html>
